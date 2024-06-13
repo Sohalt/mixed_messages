@@ -1,0 +1,5 @@
+author: "sohalt"
+category: "art"
+summary: "Modify messages in transit"
+url: "https://github.com/sohalt/mixed_messages"
+home: "https://github.com/sohalt/mixed_messages"
