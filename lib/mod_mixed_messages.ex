@@ -1,30 +1,36 @@
 defmodule ModMixedMessages do
   use Ejabberd.Module
-  require MessageTransformer
+  require DevNull
+  require Sad
+  require Happy
+  require Scream
+  require Leet
+  require Silence
+  require Sieve
 
-  @rooms ["scream", "shuffle", "1337", "abyss", "happy", "sad"]
+  @transforms_list [DevNull, Sad, Happy, Scream, Leet, Silence, Sieve]
+  @transforms_map Map.new(@transforms_list, fn t -> {t.name(), t} end)
 
   def start(_host, _opts) do
-    :ejabberd_hooks.add(:filter_packet, &filter_packet/1, 50)
-
-    [host | _] = :ejabberd_config.get_option(:hosts, [])
+    host = :ejabberd_config.get_myname()
     conference_host = "conference.#{host}"
 
-    @rooms
+    @transforms_list
     |> Enum.map(fn room ->
-      IO.puts(room)
+      name = room.name()
+      IO.puts(name)
 
       try do
-        :mod_muc_admin.destroy_room(room, conference_host)
+        :mod_muc_admin.destroy_room(name, conference_host)
       catch
         _ ->
           IO.puts("failed to delete room")
       end
 
       try do
-        :mod_muc_admin.create_room_with_opts(room, conference_host, host, [
-          {"title", room},
-          {"description", room}
+        :mod_muc_admin.create_room_with_opts(name, conference_host, host, [
+          {"title", name},
+          {"description", name}
         ])
       catch
         _ ->
@@ -32,6 +38,7 @@ defmodule ModMixedMessages do
       end
     end)
 
+    :ejabberd_hooks.add(:filter_packet, &filter_packet/1, 50)
     :ok
   end
 
@@ -40,90 +47,31 @@ defmodule ModMixedMessages do
     :ok
   end
 
-  def drop_all(_) do
-    "😶"
-  end
-
-  defp leet_char(c) do
-    case c do
-      "a" -> "4"
-      "e" -> "3"
-      "l" -> "1"
-      "o" -> "0"
-      "s" -> "5"
-      "t" -> "7"
-      "z" -> "2"
-      _ -> c
-    end
-  end
-
-  def force_happy(msg) do
-    if Afinn.score(msg, :en) > 0 do
-      msg
-    else
-      "cheer up"
-    end
-  end
-
-  def force_sad(msg) do
-    if Afinn.score(msg, :en) > 0 do
-      "more doom"
-    else
-      msg
-    end
-  end
-
-  def leet_speak(msg) do
-    String.downcase(msg) |> String.codepoints() |> Enum.map(&leet_char/1) |> Enum.join("")
-  end
-
-  def shuffle_words(sentence) do
-    String.split(sentence, " ") |> Enum.shuffle() |> Enum.join(" ")
-  end
-
-  def shuffle_words_in_sentences(msg) do
-    String.split(msg, ". " |> Enum.map(&shuffle_words/1) |> Enum.join(". "))
-  end
-
   def filter_packet(packet) do
-    scream = MessageTransformer.make_transform(&String.upcase/1)
-    shuffle = MessageTransformer.make_transform(&ModMixedMessages.shuffle_words/1)
-    leet = MessageTransformer.make_transform(&ModMixedMessages.leet_speak/1)
-    abyss = MessageTransformer.make_transform(&ModMixedMessages.drop_all/1)
-    happy = MessageTransformer.make_transform(&ModMixedMessages.force_happy/1)
-    sad = MessageTransformer.make_transform(&ModMixedMessages.force_sad/1)
-
     case packet do
-      {:message, _client, :groupchat, _lang, {:jid, "scream", _, _, _, _, _}, _to, _subject,
-       _body, _thread, _sub_els, _meta} ->
-        scream.(packet)
+      {:message, client, :groupchat, lang, from, to, subject, [{:text, x, msgtext}], thread,
+       subels, meta} ->
+        case from do
+          {:jid, sender, _, _, _, _, _} ->
+            if Map.has_key?(@transforms_map, sender) do
+              new_body = [{:text, x, @transforms_map[sender].transform(msgtext)}]
 
-      {:message, _client, :groupchat, _lang, {:jid, "shuffle", _, _, _, _, _}, _to, _subject,
-       _body, _thread, _sub_els, _meta} ->
-        shuffle.(packet)
+              {:message, client, :groupchat, lang, from, to, subject, new_body, thread, subels,
+               meta}
+            else
+              packet
+            end
 
-      {:message, _client, :groupchat, _lang, {:jid, "1337", _, _, _, _, _}, _to, _subject, _body,
-       _thread, _sub_els, _meta} ->
-        leet.(packet)
+          _ ->
+            packet
+        end
 
-      {:message, _client, :groupchat, _lang, {:jid, "abyss", _, _, _, _, _}, _to, _subject, _body,
-       _thread, _sub_els, _meta} ->
-        abyss.(packet)
-
-      {:message, _client, :groupchat, _lang, {:jid, "happy", _, _, _, _, _}, _to, _subject, _body,
-       _thread, _sub_els, _meta} ->
-        happy.(packet)
-
-      {:message, _client, :groupchat, _lang, {:jid, "sad", _, _, _, _, _}, _to, _subject, _body,
-       _thread, _sub_els, _meta} ->
-        sad.(packet)
-
-      {:message, _client, _type, _lang, _from, _to, _subject, body, _thread, _sub_els, _meta} ->
+      {:message, _client, _type, _lang, _foo, _to, _subject, body, _thread, _sub_els, _meta} ->
         IO.inspect(body, label: "body")
         packet
 
-      _ ->
-        IO.inspect(packet, label: "packet")
+      packet ->
+        packet
     end
   end
 
